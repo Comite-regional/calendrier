@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Calendrier – Comité régional de tir à l’arc</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">🏹</div>
+      <div>
+        <div class="brand-title">Comité régional de tir à l’arc</div>
+        <div class="brand-sub">Calendrier concours & dates clés</div>
+      </div>
+    </div>
+
+    <nav class="tabs" aria-label="Navigation">
+      <button class="tab is-active" data-view="calendar"><i class="ti ti-calendar-event"></i> Concours</button>
+      <button class="tab" data-view="timeline"><i class="ti ti-timeline-event"></i> Dates clés</button>
+      <button class="tab" data-view="about"><i class="ti ti-info-circle"></i> Aide</button>
+    </nav>
+  </header>
+
+  <main class="container">
+    <section id="view-calendar" class="view is-active" aria-label="Concours">
+      <div class="panel">
+        <div class="panel-head">
+          <h1>Concours de la région</h1>
+          <div class="actions">
+            <button id="btn-today" class="btn"><i class="ti ti-crosshair"></i> Aujourd’hui</button>
+            <button id="btn-reset" class="btn btn-ghost"><i class="ti ti-refresh"></i> Réinitialiser</button>
+          </div>
+        </div>
+
+        <div class="filters">
+          <div class="field">
+            <label for="f-search">Recherche</label>
+            <input id="f-search" type="search" placeholder="épreuve, organisateur, ville…" />
+          </div>
+          <div class="field">
+            <label for="f-discipline">Discipline</label>
+            <select id="f-discipline"></select>
+          </div>
+          <div class="field">
+            <label for="f-etat">État</label>
+            <select id="f-etat"></select>
+          </div>
+          </div>
+
+        <div class="legend" aria-label="Légende des disciplines">
+          <div class="legend-item"><span class="ev-ico ev-ico-svg" aria-label="TAE"><svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'><circle cx='12' cy='12' r='8' stroke='currentColor' stroke-width='2'/><circle cx='12' cy='12' r='3' stroke='currentColor' stroke-width='2'/><path d='M12 2v3M12 19v3M2 12h3M19 12h3' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg></span> TAE</div>
+          <div class="legend-item"><span class="ev-ico ev-ico-svg" aria-label="Tir 18m"><svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'><circle cx='12' cy='7.5' r='4' stroke='currentColor' stroke-width='2'/><circle cx='7.5' cy='16.5' r='4' stroke='currentColor' stroke-width='2'/><circle cx='16.5' cy='16.5' r='4' stroke='currentColor' stroke-width='2'/></svg></span> Tir 18m</div>
+          <div class="legend-item"><span class="ev-ico ev-ico-svg" aria-label="Campagne"><svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'><circle cx='12' cy='12' r='9' stroke='currentColor' stroke-width='2'/><circle cx='12' cy='12' r='5.5' stroke='currentColor' stroke-width='2' opacity='0.8'/><circle cx='12' cy='12' r='2' fill='currentColor'/></svg></span> Campagne</div>
+          <div class="legend-item"><span class="ev-ico"><i class="ti ti-paw"></i></span> 3D</div>
+          <div class="legend-item"><span class="ev-ico"><i class="ti ti-leaf"></i></span> Nature</div>
+          <div class="legend-item"><span class="ev-ico ev-ico-svg" aria-label="Beursault"><svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'><circle cx='12' cy='12' r='9' stroke='currentColor' stroke-width='2'/><circle cx='12' cy='12' r='6' stroke='currentColor' stroke-width='2'/><circle cx='12' cy='12' r='3' fill='currentColor'/></svg></span> Beursault</div>
+          <div class="legend-item"><span class="ev-ico"><i class="ti ti-mood-smile"></i></span> Loisir</div>
+        </div>
+
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <div id="calendar"></div>
+        </div>
+        <aside class="sidebar">
+          <div class="card">
+            <h2>Détails</h2>
+            <div id="details" class="details muted">Cliquez sur un concours dans le calendrier.</div>
+          </div>
+          <div class="card">
+            <h2>Prochains concours</h2>
+            <div id="upcoming" class="list muted">Chargement…</div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="view-timeline" class="view" aria-label="Dates clés">
+      <div class="panel">
+        <div class="panel-head">
+          <h1>Dates clés</h1>
+          <div class="pill" id="pill-today"></div>
+        </div>
+        <p class="muted">Frise auto-ajustée : passé grisé • en cours mis en avant • prochaines échéances mises en avant.</p>
+        </div>
+
+      <div class="grid-timeline">
+        </div>
+        <div class="card">
+          <h2>Frise chronologique</h2>
+          <div id="timeline" class="vt"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-about" class="view" aria-label="Aide">
+      <div class="card">
+        <h1>Mode d’emploi</h1>
+        <ol>
+          <li>Déposez ce dossier sur un serveur web (ou GitHub Pages).</li>
+          <li>Remplacez <b>concours.csv</b> et/ou <b>dates_cles.csv</b> pour mettre à jour.</li>
+          <li>Rechargez la page.</li>
+        </ol>
+        <h2>Important</h2>
+        <p class="muted">
+          Ouvrez via un serveur web (sinon le navigateur peut bloquer le chargement des CSV).
+          Exemple : <code>python -m http.server 8000</code> puis <code>http://localhost:8000</code>
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>© Comité régional – application HTML statique</span>
+    <span class="muted">v0.5</span>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
