@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Calendrier – Comité régional de tir à l'arc</title>
+  <link rel="icon" href="assets/logo.png"/>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.css">
+  <link rel="stylesheet" href="styles.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <img class="brand-logo" src="assets/logo.png" alt="Logo comité régional"/>
+    
+      <div class="brand-sub">Calendrier concours & dates clés</div>
+    </div>
+  </div>
+
+  <nav class="tabs" aria-label="Navigation">
+    <button class="tab is-active" data-view="concours">
+      <span class="tab-ico">📅</span> Concours
+    </button>
+    <button class="tab" data-view="dates">
+      <span class="tab-ico">🏁</span> Dates clés
+    </button>
+  </nav>
+</header>
+
+<main class="container">
+  <!-- CONCOURS -->
+  <section id="view-concours" class="view is-active">
+    <div class="card filters">
+      <div class="filters-row">
+        <div class="field">
+          <label>Recherche</label>
+          <input id="q" type="text" placeholder="épreuve, organisateur, ville…">
+        </div>
+
+        <div class="field">
+          <label>Discipline</label>
+          <select id="discipline"></select>
+        </div>
+
+        <div class="actions">
+          <button id="btn-today" class="btn">Aujourd’hui</button>
+          <button id="btn-reset" class="btn btn-ghost">Réinitialiser</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="marquee-wrap" id="marquee-wrap" hidden>
+      <div class="marquee-label">🔔 À surveiller (J-30)</div>
+      <div class="marquee" aria-live="polite">
+        <div class="marquee-track" id="marquee-track"></div>
+      </div>
+    </div>
+
+    <div class="layout">
+      <div class="calendar-card">
+        <section class="nearby" aria-label="Concours autour de moi">
+          <div class="nearby-head">
+            <h2>Concours autour de moi</h2>
+            <div class="nearby-controls">
+              <button id="btn-locate" class="btn primary" type="button">📍 Me localiser</button>
+              <label class="range">
+                <span>Rayon</span>
+                <input id="radius" type="range" min="10" max="200" step="5" value="50" />
+                <span id="radius-val">50 km</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="nearby-grid">
+            <div id="nearby-map" class="nearby-map" role="application" aria-label="Carte des concours autour de moi"></div>
+            <div class="nearby-list">
+              <div id="nearby-status" class="muted">Clique sur “Me localiser” pour voir les concours dans ton rayon.</div>
+              <div id="nearby-items" class="nearby-items"></div>
+            </div>
+          </div>
+        </section>
+
+        <div id="calendar"></div>
+      </div>
+
+      <aside class="side">
+        <div class="card">
+          <h3>Détails</h3>
+          <div id="details" class="details">Cliquez sur un concours dans le calendrier.</div>
+        </div>
+
+        <div class="card">
+          <h3>Prochains concours</h3>
+          <div id="upcoming" class="upcoming">Chargement…</div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- DATES CLES -->
+  <section id="view-dates" class="view">
+    <div class="card">
+      <div class="dates-head">
+        <h2>Dates clés</h2>
+        <div class="today-pill" id="today-pill"></div>
+      </div>
+      <div id="timeline" class="timeline">Chargement…</div>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="app.js"></script>
+</body>
+</html>
