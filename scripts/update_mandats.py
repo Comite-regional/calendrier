@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 
 
 FFTA_BASE = "https://www.ffta.fr"
-FFTA_LIST_URL = "https://www.ffta.fr/competitions"
+FFTA_LIST_URL = "https://ffta-proxy.s-general.workers.dev/"
 CSV_PATH = os.getenv("CSV_PATH", "concours26.csv")
 
 MAX_PAGES = int(os.getenv("MAX_PAGES", "60"))
