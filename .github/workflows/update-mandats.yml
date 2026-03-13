@@ -30,7 +30,7 @@ jobs:
       - name: Run updater
         env:
           CSV_PATH: concours26.csv
-          MAX_PAGES: "60"
+          MAX_PAGES: "160"
           MATCH_THRESHOLD: "0.60"
           SLEEP_S: "0.4"
         run: |
