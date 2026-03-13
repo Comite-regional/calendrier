@@ -1,8 +1,7 @@
-name: Update FFTA mandats
+    name: Update FFTA mandats
 
 on:
   schedule:
-    # Tous les jours à 05:15 UTC (06:15 Paris l’hiver, 07:15 l’été)
     - cron: "15 5 * * *"
   workflow_dispatch: {}
 
@@ -30,9 +29,12 @@ jobs:
       - name: Run updater
         env:
           CSV_PATH: concours26.csv
-          MAX_PAGES: "160"
-          MATCH_THRESHOLD: "0.60"
+          BASE_PROXY_URL: https://ffta-proxy.s-general.workers.dev/
+          MAX_PAGES: "80"
           SLEEP_S: "0.4"
+          REQUEST_TIMEOUT: "30"
+          STOP_AFTER_EMPTY_PAGES: "5"
+          STOP_AFTER_ERROR_PAGES: "5"
         run: |
           python scripts/update_mandats.py
 
