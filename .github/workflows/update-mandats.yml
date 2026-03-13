@@ -1,9 +1,9 @@
-    name: Update FFTA mandats
+name: Update FFTA mandats
 
 on:
   schedule:
     - cron: "15 5 * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 permissions:
   contents: write
