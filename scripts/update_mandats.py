@@ -66,9 +66,8 @@ def extract_mandat(detail_url):
 
     for a in soup.find_all("a", href=True):
         href = a["href"]
-        text = a.get_text(strip=True).lower()
-        if href.lower().endswith(".pdf") and any(kw in href.lower() or kw in text for kw in ["mandat", "resultat", "resultats", "engagement", "inscription", "programme", "convocation", "tae", "beursault", "extranet"]):
-            return href if href.startswith("http") else "https://www.ffta.fr" + href
+        if href.lower().endswith(".pdf"):
+            return href
 
     return ""
 
@@ -113,7 +112,6 @@ def main():
                 if row.get("Detail") == detail and not row.get("Mandat"):
                     row["Mandat"] = mandat
                     updated += 1
-                    print(f"AJOUT : {row.get('Titre compétition')} ({row.get('Date debut')}) → {mandat}")
 
         time.sleep(SLEEP)
 
