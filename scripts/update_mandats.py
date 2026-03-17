@@ -33,7 +33,7 @@ def extract_mandat(html):
     for a in soup.find_all("a", href=True):
         href = a["href"].lower()
         text = a.get_text(strip=True).lower()
-        if href.endswith(".pdf") and any(kw in href or kw in text for kw in ["mandat", "resultat", "resultats", "engagement", "inscription", "programme", "convocation", "tae", "beursault", "extranet"]):
+        if href.endswith(".pdf") and any(kw in href or kw in text for kw in ["mandat", "resultat", "engagement", "inscription", "programme", "convocation", "tae", "beursault", "extranet"]):
             return href if href.startswith("http") else "https://www.ffta.fr" + href
     return ""
 
@@ -47,7 +47,7 @@ def is_future(row):
         return False
 
 def main():
-    print(f"Script démarré – {TODAY} - MODE STRICT")
+    print(f"Script démarré – {TODAY} - MODE CODE CLUB + DATE OBLIGATOIRES")
 
     with open(CSV_PATH, encoding="utf-8-sig") as f:
         reader = csv.DictReader(f, delimiter=";")
@@ -56,8 +56,8 @@ def main():
 
     updated = 0
 
-    # Re-vérification des lignes déjà connues
-    print("\nRe-vérification des lignes futures sans mandat...")
+    # Re-vérification
+    print("\nRe-vérification lignes futures sans mandat...")
     for row in rows:
         if row.get("Mandat") or not row.get("Detail") or not is_future(row):
             continue
@@ -83,7 +83,7 @@ def main():
             seen_paths.add(detail_path)
         time.sleep(SLEEP)
 
-    # Traitement strict
+    # Traitement
     for detail_path in seen_paths:
         html = fetch(detail_path)
         if not html: continue
@@ -100,28 +100,30 @@ def main():
         h1 = soup.find("h1")
         titre_page = h1.get_text(strip=True).lower() if h1 else ""
 
-        dates_found = re.findall(r'\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b', full_text)
+        # Regex date très flexible (JJ/MM/AAAA, JJ-MM-AAAA, le JJ mois AAAA, etc.)
+        dates_found = re.findall(r'\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{1,2}\s+[a-zéèû]+\s+\d{4}', full_text)
 
         for row in rows:
             if row.get("Mandat") or not is_future(row): continue
 
             csv_date = row.get("Date debut", "").strip()
-            csv_ville = (row.get("Ville compétition") or row.get("Ville") or "").strip().lower()
             csv_code = row.get("Code structure", "").strip()
+            csv_ville = (row.get("Ville compétition") or row.get("Ville") or "").strip().lower()
             csv_discipline = row.get("Discipline", "").strip().lower()
 
-            score = 0
-            if csv_date and csv_date in dates_found: score += 5
-            if csv_code and csv_code in full_text: score += 4
-            if csv_ville and csv_ville in full_text: score += 3
-            if csv_discipline and csv_discipline in titre_page: score += 2
+            code_match = csv_code and csv_code in full_text
+            date_match = csv_date and any(csv_date in d for d in dates_found)
 
-            if score >= 9:
+            if code_match and date_match:
                 row["Detail"] = f"https://www.ffta.fr{detail_path}"
                 row["Mandat"] = mandat
                 updated += 1
-                print(f"   → AJOUT STRICT (score {score}) : {row.get('Titre compétition')} ({csv_date}) → {mandat}")
+                print(f"   → AJOUT (code + date) : {row.get('Titre compétition')} ({csv_date}) → {mandat}")
                 break
+            else:
+                print(f"   → Refusé : {row.get('Titre compétition')} (code={code_match}, date={date_match})")
+
+        time.sleep(SLEEP)
 
     if updated > 0:
         with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
@@ -130,7 +132,7 @@ def main():
             writer.writerows(rows)
         print(f"\nCSV sauvegardé – {updated} ajouts")
     else:
-        print("\nAucun ajout – vérifiez les logs")
+        print("\nAucun ajout – vérifiez si les pages FFTA ont bien les codes clubs et dates exactes")
 
     print("Fin")
 
