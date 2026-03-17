@@ -47,7 +47,7 @@ def is_future(row):
         return False
 
 def main():
-    print(f"Script démarré – {TODAY} - MODE CODE CLUB + DATE OBLIGATOIRES")
+    print(f"Script démarré – {TODAY} - MODE ASSOUPLI MAIS SÛR")
 
     with open(CSV_PATH, encoding="utf-8-sig") as f:
         reader = csv.DictReader(f, delimiter=";")
@@ -100,8 +100,8 @@ def main():
         h1 = soup.find("h1")
         titre_page = h1.get_text(strip=True).lower() if h1 else ""
 
-        # Regex date très flexible (JJ/MM/AAAA, JJ-MM-AAAA, le JJ mois AAAA, etc.)
-        dates_found = re.findall(r'\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{1,2}\s+[a-zéèû]+\s+\d{4}', full_text)
+        # Regex date très large
+        dates_found = re.findall(r'\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{1,2}\s*(?:janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\s*\d{4}', full_text)
 
         for row in rows:
             if row.get("Mandat") or not is_future(row): continue
@@ -111,17 +111,20 @@ def main():
             csv_ville = (row.get("Ville compétition") or row.get("Ville") or "").strip().lower()
             csv_discipline = row.get("Discipline", "").strip().lower()
 
-            code_match = csv_code and csv_code in full_text
-            date_match = csv_date and any(csv_date in d for d in dates_found)
+            score = 0
+            if csv_date and any(csv_date in d or csv_date.replace('/', ' ') in d for d in dates_found): score += 5
+            if csv_code and csv_code in full_text: score += 4
+            if csv_ville and csv_ville in full_text: score += 2
+            if csv_discipline and csv_discipline in titre_page: score += 2
 
-            if code_match and date_match:
+            if score >= 8:
                 row["Detail"] = f"https://www.ffta.fr{detail_path}"
                 row["Mandat"] = mandat
                 updated += 1
-                print(f"   → AJOUT (code + date) : {row.get('Titre compétition')} ({csv_date}) → {mandat}")
+                print(f"   → AJOUT (score {score}) : {row.get('Titre compétition')} ({csv_date}) → {mandat}")
                 break
             else:
-                print(f"   → Refusé : {row.get('Titre compétition')} (code={code_match}, date={date_match})")
+                print(f"   → Refusé : {row.get('Titre compétition')} (score {score}, code={csv_code in full_text}, date={any(csv_date in d for d in dates_found)})")
 
         time.sleep(SLEEP)
 
@@ -132,7 +135,7 @@ def main():
             writer.writerows(rows)
         print(f"\nCSV sauvegardé – {updated} ajouts")
     else:
-        print("\nAucun ajout – vérifiez si les pages FFTA ont bien les codes clubs et dates exactes")
+        print("\nAucun ajout – les pages n'ont pas matché sur code club + date")
 
     print("Fin")
 
