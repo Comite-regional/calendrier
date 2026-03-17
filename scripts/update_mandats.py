@@ -19,19 +19,29 @@ TODAY = datetime.date.today()
 PAYS_LOIRE_DEPS = {"44", "49", "53", "72", "85"}
 
 # Mots-clés pour détecter un PDF pertinent
-PDF_KEYWORDS = ["mandat", "resultat", "resultats", "result", "engagement", "inscription", "inscriptions", "programme", "convocation"]
+PDF_KEYWORDS = [
+    "mandat", "resultat", "resultats", "result", "engagement",
+    "inscription", "inscriptions", "programme", "convocation"
+]
 
-def proxy_url(path_or_full):
-    """Transforme n'importe quelle URL FFTA en requête proxy"""
-    if path_or_full.startswith("http"):
-        path = path_or_full.split("ffta.fr")[-1]
-    else:
-        path = path_or_full
+# Mots-clés pour identifier un concours Pays de la Loire dans le listing
+PL_KEYWORDS = [
+    "44", "49", "53", "72", "85",
+    "loire atlantique", "maine et loire", "mayenne", "sarthe", "vendée",
+    "pays de la loire", "cr12", "comite regional des pays de la loire",
+    "nantes", "angers", "le mans", "laval", "la roche sur yon",
+    "saumur", "cholet", "st nazaire", "fontenay le comte"
+]
+
+def proxy_url(path):
+    """Transforme un path relatif en requête proxy"""
+    if not path.startswith("/"):
+        path = "/" + path
     return f"{PROXY_BASE}?target={quote(path)}"
 
 def fetch(url):
     try:
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}, timeout=20)
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
         if r.status_code == 200:
             return r.text
         print(f"  → Erreur HTTP {r.status_code} sur {url}")
@@ -50,13 +60,6 @@ def is_future(row):
     except:
         return False
 
-def is_pays_loire(row):
-    dep = row.get("Departement", "").strip()
-    if dep in PAYS_LOIRE_DEPS:
-        return True
-    ville = (row.get("Ville compétition") or row.get("Ville") or "").lower()
-    return any(kw in ville for kw in ["nantes", "angers", "le mans", "laval", "roche sur yon", "saumur", "cholet", "st nazaire"])
-
 def extract_mandat_from_html(html):
     if not html:
         return ""
@@ -74,11 +77,11 @@ def extract_mandat_from_html(html):
 def main():
     print(f"Script démarré - Date actuelle : {TODAY}")
 
-    # Chargement CSV
     if not os.path.exists(CSV_PATH):
         print(f"ERREUR : {CSV_PATH} introuvable")
         return
 
+    # Chargement CSV
     with open(CSV_PATH, encoding="utf-8-sig") as f:
         reader = csv.DictReader(f, delimiter=";")
         rows = list(reader)
@@ -86,45 +89,47 @@ def main():
 
     updated = 0
 
-    # URL de base filtrée Pays de la Loire (année 2026)
-    base_listing = (
-        "/competitions?search=&start=2026-03-17&end=2027-03-17"
-        "&dep%5B0%5D=44&dep%5B1%5D=49&dep%5B2%5D=53&dep%5B3%5D=72&dep%5B4%5D=85"
-        "&discipline=All&univers=All&inter=All&sort_by=start&sort_order=ASC"
-    )
-
-    # 1. Collecter les URLs de détail depuis le listing filtré
+    # 1. Scanner le listing national (sans params complexes)
     seen_urls = set()
     for page in range(1, MAX_PAGES + 1):
-        listing_url = f"{base_listing}&page={page}"
-        print(f"Scan listing page {page} : {listing_url}")
-        html = fetch(proxy_url(listing_url))
+        listing_path = f"/competitions?page={page}"
+        print(f"Scan listing page {page} : {listing_path}")
+        html = fetch(proxy_url(listing_path))
         if not html:
             break
 
         soup = BeautifulSoup(html, "html.parser")
         added_this_page = 0
 
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            if "/epreuve/" not in href:
+        # On cherche dans les conteneurs probables (à adapter si structure change)
+        for container in soup.find_all(['li', 'div', 'article', 'tr', 'td']):
+            a = container.find("a", href=True)
+            if not a or "/epreuve/" not in a["href"]:
                 continue
-            detail_path = href.split("/epreuve/")[-1].split("?")[0]
+
+            line_text = container.get_text(" ", strip=True).lower()
+            if not any(kw in line_text for kw in PL_KEYWORDS):
+                continue
+
+            detail_path = a["href"].split("/epreuve/")[-1].split("?")[0]
             detail_url = f"https://www.ffta.fr/epreuve/{detail_path}"
             detail_url = detail_url.replace("/index.php", "")
+
             if detail_url not in seen_urls:
                 seen_urls.add(detail_url)
                 added_this_page += 1
 
-        print(f"  → {added_this_page} URLs extraites cette page")
+        print(f"  → {added_this_page} candidats Pays de la Loire détectés cette page")
 
-        if added_this_page == 0:
+        if added_this_page == 0 and page > 1:
+            print("  → Arrêt : plus de nouveaux candidats")
             break
+
         time.sleep(SLEEP)
 
-    print(f"Total URLs Pays de la Loire détectées : {len(seen_urls)}")
+    print(f"Total URLs candidates Pays de la Loire : {len(seen_urls)}")
 
-    # 2. Traiter chaque URL (nouveaux + anciens sans mandat)
+    # 2. Traiter chaque URL candidate
     for detail_url in seen_urls:
         print(f"Traitement {detail_url}")
 
@@ -135,17 +140,17 @@ def main():
         soup = BeautifulSoup(html, "html.parser")
         page_text = soup.get_text().lower()
 
-        # Confirmation rapide région (optionnel mais utile)
+        # Confirmation région (plus fiable)
         if not any(kw in page_text for kw in ["pays de la loire", "cr12", "comite regional des pays de la loire"]):
-            print("  → Non Pays de la Loire → skip")
+            print("  → Non Pays de la Loire → ignoré")
             continue
 
         mandat = extract_mandat_from_html(html)
         if not mandat:
-            print("  → Aucun PDF mandat trouvé")
+            print("  → Aucun PDF pertinent trouvé")
             continue
 
-        # Matching avec lignes CSV
+        # Matching avec le CSV
         matched = False
         titre_page = ""
         h1 = soup.find("h1")
@@ -155,43 +160,42 @@ def main():
         date_mentions = re.findall(r'\d{1,2}[/-]\d{1,2}[/-]\d{4}', page_text)
 
         for row in rows:
-            if not is_future(row) or not is_pays_loire(row):
+            if not is_future(row):
                 continue
-            if row.get("Mandat"):
-                continue  # déjà rempli
 
             csv_titre = row.get("Titre compétition", "").strip().lower()
-            csv_date_debut = row.get("Date debut", "").strip()
-            csv_ville = (row.get("Ville compétition") or row.get("Ville", "")).strip().lower()
+            csv_date = row.get("Date debut", "").strip()
+            csv_ville = (row.get("Ville compétition") or row.get("Ville") or "").strip().lower()
 
             score = 0
             if csv_titre and csv_titre in titre_page:
                 score += 4
-            if csv_date_debut and csv_date_debut in date_mentions:
+            if csv_date and csv_date in date_mentions:
                 score += 3
             if csv_ville and csv_ville in page_text:
                 score += 2
 
-            if score >= 4 or (row.get("Detail") == detail_url):
-                row["Detail"] = detail_url
-                row["Mandat"] = mandat
-                updated += 1
-                print(f"   → AJOUTÉ (score {score}) : {row.get('Titre compétition')} → {mandat}")
-                matched = True
+            if score >= 4 or row.get("Detail") == detail_url:
+                if not row.get("Mandat"):
+                    row["Detail"] = detail_url
+                    row["Mandat"] = mandat
+                    updated += 1
+                    print(f"   → AJOUTÉ (score {score}) : {row.get('Titre compétition')} → {mandat}")
+                    matched = True
                 break
 
         if not matched:
-            print("  → Pas de matching trouvé dans le CSV")
+            print("  → Pas de correspondance trouvée dans le CSV")
 
         time.sleep(SLEEP)
 
-    # Sauvegarde
+    # Sauvegarde si modifications
     if updated > 0:
         with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=";")
             writer.writeheader()
             writer.writerows(rows)
-        print(f"CSV sauvegardé - {updated} mandats ajoutés")
+        print(f"CSV mis à jour – {updated} mandats ajoutés")
     else:
         print("Aucun nouveau mandat ajouté aujourd'hui")
 
