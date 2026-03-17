@@ -15,6 +15,7 @@ HEADERS = {
     "Accept-Language": "fr-FR,fr;q=0.9"
 }
 
+
 def proxy_detail(url):
     parsed = urlparse(url)
     path = parsed.path
@@ -22,12 +23,14 @@ def proxy_detail(url):
         path += "?" + parsed.query
     return f"{PROXY}?target={quote(path)}"
 
+
 def fetch(url):
     try:
         r = requests.get(url, headers=HEADERS, timeout=20)
         return r.status_code, r.text
     except Exception:
         return None, None
+
 
 def get_listing(page):
     url = f"{PROXY}?page={page}"
@@ -49,6 +52,7 @@ def get_listing(page):
 
     return list(set(competitions))
 
+
 def extract_mandat(detail_url):
     url = proxy_detail(detail_url)
 
@@ -68,10 +72,12 @@ def extract_mandat(detail_url):
 
     return ""
 
+
 def load_csv():
     with open(CSV_PATH, encoding="utf-8-sig") as f:
         reader = csv.DictReader(f, delimiter=";")
         return list(reader), reader.fieldnames
+
 
 def save_csv(rows, fieldnames):
     with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
@@ -79,12 +85,15 @@ def save_csv(rows, fieldnames):
         writer.writeheader()
         writer.writerows(rows)
 
+
 def main():
+
     rows, fieldnames = load_csv()
 
     updated = 0
 
     for page in range(MAX_PAGES):
+
         print(f"PAGE {page}")
 
         competitions = get_listing(page)
@@ -93,12 +102,14 @@ def main():
             break
 
         for detail in competitions:
+
             mandat = extract_mandat(detail)
 
             if not mandat:
                 continue
 
             for row in rows:
+
                 if row.get("Detail") == detail and not row.get("Mandat"):
                     row["Mandat"] = mandat
                     updated += 1
@@ -109,6 +120,7 @@ def main():
     save_csv(rows, fieldnames)
 
     print("Mandats ajoutés :", updated)
+
 
 if __name__ == "__main__":
     main()
