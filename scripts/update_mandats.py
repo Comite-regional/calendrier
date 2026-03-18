@@ -3,9 +3,31 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
+
+# ============================
+# CONFIG
+# ============================
+
 CSV_PATH = "concours26.csv"
 PROXY = "https://ffta-proxy.s-general.workers.dev/"
 BASE = "https://www.ffta.fr"
+
+
+# ============================
+# CSV
+# ============================
+
+def load_csv():
+    with open(CSV_PATH, encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f, delimiter=";")
+        return list(reader), reader.fieldnames
+
+
+def save_csv(rows, fields):
+    with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fields, delimiter=";")
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 # ============================
@@ -15,7 +37,7 @@ BASE = "https://www.ffta.fr"
 def get_cards():
     cards = []
 
-    for page in range(0, 10):  # limité volontairement
+    for page in range(10):
         url = f"{PROXY}?target=/competitions&page={page}"
         print("PAGE", page)
 
@@ -40,8 +62,8 @@ def get_cards():
                     mandat = urljoin(BASE, link["href"])
 
             cards.append({
-                "title": title,
-                "text": text,
+                "title": title.lower(),
+                "text": text.lower(),
                 "mandat": mandat
             })
 
@@ -49,51 +71,26 @@ def get_cards():
 
 
 # ============================
-# CSV
+# MATCH
 # ============================
-
-def load_csv():
-    with open(CSV_PATH, encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f, delimiter=";")
-        return list(reader), reader.fieldnames
-
-
-def save_csv(rows, fields):
-    with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fields, delimiter=";")
-        writer.writeheader()
-        writer.writerows(rows)
-
-
-# ============================
-# MATCH SIMPLE
-# ============================
-
-def normalize(x):
-    return (x or "").lower()
-
 
 def match(row, card):
-    titre = normalize(row.get("Titre compétition"))
-    ville = normalize(row.get("Ville compétition") or row.get("Ville"))
+    titre = (row.get("Titre compétition") or "").lower()
+    ville = (row.get("Ville compétition") or row.get("Ville") or "").lower()
 
-    return titre in normalize(card["title"]) and ville in normalize(card["text"])
+    return titre in card["title"] and ville in card["text"]
 
 
 # ============================
-# MAIN
+# UPDATE
 # ============================
 
-def main():
-    rows, fields = load_csv()
-    cards = get_cards()
-
+def update_mandats(rows, cards):
     added = []
 
     for row in rows:
-        if row.get("Code region") != "CR12":
-            continue
 
+        # uniquement lignes sans mandat
         if row.get("Mandat"):
             continue
 
@@ -108,13 +105,26 @@ def main():
                 print("OK:", row.get("Titre compétition"))
                 break
 
+    return added
+
+
+# ============================
+# MAIN
+# ============================
+
+def main():
+    rows, fields = load_csv()
+    cards = get_cards()
+
+    added = update_mandats(rows, cards)
+
     save_csv(rows, fields)
 
     print("\n=== RAPPORT ===")
     for a in added:
         print("-", a)
 
-    print("\nTotal mandats ajoutés :", len(added))
+    print("\nTotal:", len(added))
 
 
 if __name__ == "__main__":
