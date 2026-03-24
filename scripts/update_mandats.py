@@ -10,7 +10,7 @@ import os
 # ============================
 # CONFIGURATION
 # ============================
-CSV_PATH = "concours26-3.csv"
+CSV_PATH = "concours26.csv"
 # Ton Worker Cloudflare pour contourner la protection
 PROXY = "https://ffta-proxy.s-general.workers.dev/"
 BASE = "https://www.ffta.fr"
