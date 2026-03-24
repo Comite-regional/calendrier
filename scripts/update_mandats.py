@@ -123,7 +123,18 @@ def get_cards():
 
     print(f"\n✅ Total cards scrapées : {len(cards)}")
     return cards
+# DEBUG - à retirer après
+print("\n=== EXEMPLES DE CARDS ===")
+for c in cards[:5]:
+    print(f"TITLE: {c['title_raw']}")
+    print(f"TEXT:  {c['text'][:200]}")
+    print(f"MANDAT: {c['mandat']}")
+    print("---")
 
+print("\n=== EXEMPLES CSV SANS MANDAT ===")
+sans = [r for r in rows if not r.get("Mandat","").strip()]
+for r in sans[:5]:
+    print(f"CSV titre: {r.get('Titre compétition')} | ville: {r.get('Ville')}")
 # ============================
 # CORRESPONDANCE
 # ============================
