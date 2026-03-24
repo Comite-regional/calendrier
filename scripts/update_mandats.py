@@ -9,7 +9,7 @@ CSV_PATH = "concours26.csv"
 PROXY = "https://ffta-proxy.s-general.workers.dev/"
 BASE = "https://www.ffta.fr"
 
-# Ton URL source validée
+# Ton URL source PDL
 URL_ROOT = "/competitions?search=&start=2026-03-24&end=2027-03-24&dep%5B0%5D=45&dep%5B1%5D=50&dep%5B2%5D=54&dep%5B3%5D=73&dep%5B4%5D=86&discipline=All&univers=All&inter=All&sort_by=start&sort_order=ASC"
 
 def clean_text(s):
@@ -19,13 +19,12 @@ def clean_text(s):
     return re.sub(r'[^a-z0-9]', '', s)
 
 def main():
-    if not os.path.exists(CSV_PATH): return print(f"❌ Fichier {CSV_PATH} introuvable.")
+    if not os.path.exists(CSV_PATH): return print("❌ Fichier CSV introuvable.")
 
     with open(CSV_PATH, encoding="utf-8-sig") as f:
         reader = csv.DictReader(f, delimiter=";")
         rows = list(reader)
         fields = reader.fieldnames
-    if "Mandat" not in fields: fields.append("Mandat")
 
     # 1. Collecte des liens
     detail_links = []
@@ -36,57 +35,59 @@ def main():
             r = requests.get(f"{PROXY}?target={quote(target)}", timeout=20)
             soup = BeautifulSoup(r.text, "html.parser")
             for a in soup.find_all("a", href=True):
-                h = a['href']
-                if "/competition/" in h or "/epreuve/" in h:
-                    detail_links.append(urljoin("/", h))
+                if "/competition/" in a['href'] or "/epreuve/" in a['href']:
+                    detail_links.append(urljoin("/", a['href']))
         except: continue
 
     links = list(set(detail_links))
-    print(f"\n✅ {len(links)} épreuves à vérifier.")
+    print(f"\n✅ {len(links)} épreuves trouvées sur FFTA.")
 
-    # 2. Analyse et Extraction
+    # 2. Analyse et Matching / Ajout
     updated = 0
+    added = 0
+    
     for link in links:
         try:
             res = requests.get(f"{PROXY}?target={quote(link)}", timeout=15)
             detail_soup = BeautifulSoup(res.text, "html.parser")
             
-            # --- RECHERCHE DU MANDAT AVEC EXCLUSION ---
+            # Extraction infos de base
+            titre_page = detail_soup.find("h1").get_text(strip=True) if detail_soup.find("h1") else "Sans titre"
+            page_content_clean = clean_text(detail_soup.get_text())
+            
+            # Extraction Mandat
             mandat_url = ""
             for a in detail_soup.find_all("a", href=True):
                 href = a['href'].lower()
-                text = a.get_text().lower()
-                
-                # On exclut les pages de santé/recommandations
-                if "sante-et-tir-larc" in href or "recommandations-medicales" in href:
-                    continue
-                
-                # On accepte si c'est un PDF ou si le texte contient "mandat"
-                if "mandat" in text or "mandat" in href or href.endswith(".pdf"):
+                if "sante-et-tir-larc" in href: continue
+                if "mandat" in a.get_text().lower() or "mandat" in href or href.endswith(".pdf"):
                     mandat_url = urljoin(BASE, a['href'])
                     break
             
-            if not mandat_url:
-                continue
-
-            page_content_clean = clean_text(detail_soup.get_text())
-            
+            # On cherche si le club (ou l'épreuve) existe déjà dans notre CSV
+            found_in_csv = False
             for row in rows:
-                # On ne remplit QUE si c'est vide ou si c'était l'erreur "santé"
-                current_mandat = str(row.get("Mandat", ""))
-                if "sante-et-tir-larc" not in current_mandat and len(current_mandat) > 10:
-                    continue
-                
                 code_club = clean_text(row.get("Code structure", ""))
-                
                 if code_club and code_club in page_content_clean:
-                    row["Mandat"] = mandat_url
-                    print(f"   ⭐ MANDAT VALIDE : {row['Ville']} | {mandat_url[-30:]}")
-                    updated += 1
+                    # On a trouvé la ligne, on met juste à jour le mandat
+                    if not row.get("Mandat"):
+                        row["Mandat"] = mandat_url
+                        updated += 1
+                    found_in_csv = True
                     break
+            
+            # SI PAS TROUVÉ : ON AJOUTE UNE NOUVELLE LIGNE
+            if not found_in_csv:
+                new_row = {f: "" for f in fields} # On crée une ligne vide avec les bonnes colonnes
+                new_row["Titre compétition"] = titre_page
+                new_row["Mandat"] = mandat_url
+                # On essaie de deviner la ville dans le titre
+                new_row["Ville"] = titre_page.split("-")[-1].strip() 
+                rows.append(new_row)
+                print(f"➕ NOUVELLE ÉPREUVE AJOUTÉE : {titre_page}")
+                added += 1
                         
         except Exception: continue
-        time.sleep(0.2)
 
     # 3. Sauvegarde
     with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
@@ -94,7 +95,7 @@ def main():
         writer.writeheader()
         writer.writerows(rows)
 
-    print(f"\n🎉 Terminé ! {updated} mandats réels ajoutés (les faux ont été ignorés).")
+    print(f"\n🎉 Terminé ! {updated} mandats complétés et {added} nouvelles épreuves créées.")
 
 if __name__ == "__main__":
     main()
