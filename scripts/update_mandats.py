@@ -9,9 +9,8 @@ CSV_PATH = "concours26.csv"
 PROXY = "https://ffta-proxy.s-general.workers.dev/"
 BASE = "https://www.ffta.fr"
 
-# URL de recherche forcée sur les 5 départements des Pays de la Loire
-# Les paramètres dep[0] à dep[4] sont les filtres officiels de la FFTA pour 44,49,53,72,85
-SEARCH_URL = "/competitions?search=&start=2025-09-01&end=2026-08-31&dep%5B0%5D=44&dep%5B1%5D=49&dep%5B2%5D=53&dep%5B3%5D=72&dep%5B4%5D=85&discipline=All&sort_by=start"
+# L'URL racine basée sur tes liens (Page 1 = page=0)
+URL_ROOT = "/competitions?search=&start=2026-03-24&end=2027-03-24&dep%5B0%5D=45&dep%5B1%5D=50&dep%5B2%5D=54&dep%5B3%5D=73&dep%5B4%5D=86&discipline=All&univers=All&inter=All&sort_by=start&sort_order=ASC"
 
 def normalize(s):
     if not s: return ""
@@ -26,52 +25,58 @@ def main():
         fields = reader.fieldnames
     if "Mandat" not in fields: fields.append("Mandat")
 
-    # 1. Collecter tous les liens de détails dans les Pays de la Loire
+    # 1. Collecter les liens de détails sur tes pages spécifiques
     detail_links = []
-    for page in range(6): # 6 pages couvrent largement la saison PDL
-        target = f"{SEARCH_URL}&page={page}"
-        print(f"📡 Scan de la liste PDL (Page {page})...", end="\r")
+    # On scanne les pages 0, 1, 2, 3... (ajuste le range si besoin)
+    for p_idx in range(5): 
+        target = f"{URL_ROOT}&page={p_idx}"
+        print(f"📡 Analyse de ta Page {p_idx+1} (index {p_idx})...", end="\r")
         try:
             r = requests.get(f"{PROXY}?target={quote(target)}", timeout=20)
             soup = BeautifulSoup(r.text, "html.parser")
+            
+            items_found = 0
             for a in soup.find_all("a", href=True):
                 href = a['href']
                 if "/competition/" in href or "/epreuve/" in href:
                     detail_links.append(urljoin("/", href))
+                    items_found += 1
+            if items_found == 0: break # Plus de résultats
         except: continue
 
     links = list(set(detail_links))
-    print(f"\n✅ {len(links)} épreuves identifiées en Pays de la Loire.")
+    print(f"\n✅ {len(links)} fiches identifiées sur tes pages FFTA.")
 
-    # 2. Ouvrir chaque fiche pour vérification et extraction du mandat
+    # 2. Analyse profonde de chaque fiche
     updated = 0
     for link in links:
-        print(f"🔎 Analyse détaillée : {link}      ", end="\r")
+        print(f"🔎 Analyse : {link}      ", end="\r")
         try:
             res = requests.get(f"{PROXY}?target={quote(link)}", timeout=15)
             detail_soup = BeautifulSoup(res.text, "html.parser")
-            page_content = normalize(detail_soup.get_text(" "))
+            page_text = normalize(detail_soup.get_text(" "))
 
-            # Trouver le mandat
+            # Extraction du mandat (PDF ou lien "Mandat")
             mandat_url = ""
             for a in detail_soup.find_all("a", href=True):
-                if "mandat" in a.get_text().lower() or ".pdf" in a['href'].lower():
+                txt = a.get_text().lower()
+                href = a['href'].lower()
+                if "mandat" in txt or "mandat" in href or href.endswith(".pdf"):
                     mandat_url = urljoin(BASE, a['href'])
                     break
             
             if not mandat_url: continue
 
-            # Comparaison avec le Code Structure du CSV
+            # Matching avec ton CSV via le Code Structure
             for row in rows:
-                if len(str(row.get("Mandat", ""))) > 10: continue
-                
                 code_club = str(row.get("Code structure", "")).strip()
-                # Si le code club est présent dans la page de détail, c'est un match parfait
-                if code_club and code_club in page_content:
-                    row["Mandat"] = mandat_url
-                    print(f"\n✨ Match trouvé : {row['Ville']} ({code_club})")
-                    updated += 1
-                    break
+                if code_club and code_club in page_text:
+                    # Sécurité supplémentaire : la ville
+                    if normalize(row.get("Ville", "")) in page_text:
+                        row["Mandat"] = mandat_url
+                        print(f"\n✨ Trouvé : {row['Ville']} ({code_club})")
+                        updated += 1
+                        break
         except: continue
         time.sleep(0.2)
 
@@ -81,7 +86,7 @@ def main():
         writer.writeheader()
         writer.writerows(rows)
 
-    print(f"\n🎉 Terminé ! {updated} mandats ajoutés au fichier {CSV_PATH}.")
+    print(f"\n🎉 Terminé ! {updated} mandats associés avec succès.")
 
 if __name__ == "__main__":
     main()
