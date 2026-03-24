@@ -1,22 +1,29 @@
 import csv, os, time, requests, unicodedata, re
 from urllib.parse import quote, urljoin
 from bs4 import BeautifulSoup
+from datetime import datetime
 
 # ============================
 # CONFIGURATION
 # ============================
-CSV_PATH = "concours26.csv"
+CSV_PATH = "concours26-4.csv"
 PROXY = "https://ffta-proxy.s-general.workers.dev/"
 BASE = "https://www.ffta.fr"
 
-# Ton URL source PDL
 URL_ROOT = "/competitions?search=&start=2026-03-24&end=2027-03-24&dep%5B0%5D=45&dep%5B1%5D=50&dep%5B2%5D=54&dep%5B3%5D=73&dep%5B4%5D=86&discipline=All&univers=All&inter=All&sort_by=start&sort_order=ASC"
 
-def clean_text(s):
+def clean_simple(s):
     if not s: return ""
-    s = str(s).lower()
+    s = str(s).lower().strip()
     s = unicodedata.normalize("NFD", s).encode("ascii", "ignore").decode("utf-8")
     return re.sub(r'[^a-z0-9]', '', s)
+
+def parse_date(date_str):
+    """Convertit JJ/MM/AAAA en objet date pour le tri"""
+    try:
+        return datetime.strptime(date_str, "%d/%m/%Y")
+    except:
+        return datetime(9999, 12, 31) # Envoie les dates invalides à la fin
 
 def main():
     if not os.path.exists(CSV_PATH): return print("❌ Fichier CSV introuvable.")
@@ -26,11 +33,11 @@ def main():
         rows = list(reader)
         fields = reader.fieldnames
 
-    # 1. Collecte des liens
+    # 1. Collecte FFTA
     detail_links = []
-    for p_idx in range(5): 
+    for p_idx in range(3): 
         target = f"{URL_ROOT}&page={p_idx}"
-        print(f"📡 Scan Liste (Page {p_idx+1})...", end="\r")
+        print(f"📡 Scan FFTA Page {p_idx+1}...", end="\r")
         try:
             r = requests.get(f"{PROXY}?target={quote(target)}", timeout=20)
             soup = BeautifulSoup(r.text, "html.parser")
@@ -40,62 +47,71 @@ def main():
         except: continue
 
     links = list(set(detail_links))
-    print(f"\n✅ {len(links)} épreuves trouvées sur FFTA.")
+    print(f"\n✅ {len(links)} épreuves trouvées.")
 
-    # 2. Analyse et Matching / Ajout
-    updated = 0
     added = 0
-    
+    updated = 0
+
+    # 2. Analyse et Ajout
     for link in links:
         try:
             res = requests.get(f"{PROXY}?target={quote(link)}", timeout=15)
             detail_soup = BeautifulSoup(res.text, "html.parser")
             
-            # Extraction infos de base
-            titre_page = detail_soup.find("h1").get_text(strip=True) if detail_soup.find("h1") else "Sans titre"
-            page_content_clean = clean_text(detail_soup.get_text())
+            titre_ffta = detail_soup.find("h1").get_text(strip=True) if detail_soup.find("h1") else ""
+            page_text = clean_simple(detail_soup.get_text())
             
-            # Extraction Mandat
+            # Extraction Date (souvent dans un bloc spécifique sur FFTA)
+            date_ffta = ""
+            date_box = detail_soup.find("div", class_="date-display-single")
+            if date_box: date_ffta = date_box.get_text(strip=True)
+            # Si format FFTA est "25/03/2026", on le garde, sinon on peut tenter de l'extraire du texte
+
+            # Mandat
             mandat_url = ""
             for a in detail_soup.find_all("a", href=True):
                 href = a['href'].lower()
-                if "sante-et-tir-larc" in href: continue
-                if "mandat" in a.get_text().lower() or "mandat" in href or href.endswith(".pdf"):
+                if any(x in href for x in ["sante", "medical"]): continue
+                if "mandat" in a.get_text().lower() or href.endswith(".pdf"):
                     mandat_url = urljoin(BASE, a['href'])
                     break
-            
-            # On cherche si le club (ou l'épreuve) existe déjà dans notre CSV
-            found_in_csv = False
+
+            found = False
             for row in rows:
-                code_club = clean_text(row.get("Code structure", ""))
-                if code_club and code_club in page_content_clean:
-                    # On a trouvé la ligne, on met juste à jour le mandat
-                    if not row.get("Mandat"):
+                if clean_simple(row.get("Code structure", "")) in page_text:
+                    if mandat_url and not row.get("Mandat"):
                         row["Mandat"] = mandat_url
                         updated += 1
-                    found_in_csv = True
+                    found = True
                     break
-            
-            # SI PAS TROUVÉ : ON AJOUTE UNE NOUVELLE LIGNE
-            if not found_in_csv:
-                new_row = {f: "" for f in fields} # On crée une ligne vide avec les bonnes colonnes
-                new_row["Titre compétition"] = titre_page
-                new_row["Mandat"] = mandat_url
-                # On essaie de deviner la ville dans le titre
-                new_row["Ville"] = titre_page.split("-")[-1].strip() 
-                rows.append(new_row)
-                print(f"➕ NOUVELLE ÉPREUVE AJOUTÉE : {titre_page}")
-                added += 1
-                        
-        except Exception: continue
 
-    # 3. Sauvegarde
+            if not found:
+                new_row = {f: "" for f in fields}
+                new_row["Titre compétition"] = titre_ffta
+                new_row["Mandat"] = mandat_url
+                new_row["Saison"] = "2026"
+                # On essaie de récupérer la date si possible (format attendu JJ/MM/AAAA)
+                # Note: Si FFTA affiche "25 Mars", il faudra un petit convertisseur
+                rows.append(new_row)
+                added += 1
+                print(f"➕ Ajouté : {titre_ffta}")
+
+        except: continue
+
+    # ==========================================
+    # 3. LE TRI (C'est ici que l'ordre se répare)
+    # ==========================================
+    # On trie la liste de dictionnaires par la colonne 'Date debut'
+    print("⚖️ Tri du fichier par date...")
+    rows.sort(key=lambda x: parse_date(x.get("Date debut", "")))
+
+    # 4. Sauvegarde
     with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fields, delimiter=";")
         writer.writeheader()
         writer.writerows(rows)
 
-    print(f"\n🎉 Terminé ! {updated} mandats complétés et {added} nouvelles épreuves créées.")
+    print(f"\n🎉 Fichier sauvegardé et trié ! ({updated} mandats, {added} nouveaux)")
 
 if __name__ == "__main__":
     main()
