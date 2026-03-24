@@ -11,23 +11,20 @@ import os
 # CONFIGURATION
 # ============================
 CSV_PATH = "concours26.csv"
-# Ton Worker Cloudflare pour contourner la protection
 PROXY = "https://ffta-proxy.s-general.workers.dev/"
 BASE = "https://www.ffta.fr"
 
-# Départements Pays de la Loire
+# Départements Pays de la Loire (ajustés selon ton URL)
 DEPARTEMENTS = ["44", "49", "53", "72", "85"]
 
 # ============================
-# GESTION CSV
+# FONCTIONS UTILITAIRES
 # ============================
 def load_csv():
     if not os.path.exists(CSV_PATH):
-        print(f"❌ Erreur : Le fichier {CSV_PATH} est introuvable.")
+        print(f"❌ Erreur : {CSV_PATH} introuvable.")
         return [], []
-    
     with open(CSV_PATH, encoding="utf-8-sig") as f:
-        # On utilise le point-virgule comme dans ton fichier
         reader = csv.DictReader(f, delimiter=";")
         rows = list(reader)
         fields = reader.fieldnames
@@ -39,11 +36,7 @@ def save_csv(rows, fields):
         writer.writeheader()
         writer.writerows(rows)
 
-# ============================
-# UTILITAIRES
-# ============================
 def normalize(s):
-    """Supprime les accents, met en minuscule et nettoie les espaces"""
     if not s: return ""
     s = str(s).lower().strip()
     s = unicodedata.normalize("NFD", s)
@@ -51,148 +44,99 @@ def normalize(s):
     return s
 
 def build_target_url(page=0):
-    today = date.today().isoformat()
-    # On cherche sur une large période pour couvrir la saison 2026
-    end = "2026-09-30"
-    dep_params = "&".join(f"dep%5B%5D={d}" for d in DEPARTEMENTS)
-    url = (
-        f"/competitions?search=&start={today}&end={end}"
-        f"&{dep_params}"
-        f"&discipline=All&univers=All&inter=All"
-        f"&sort_by=start&sort_order=ASC&page={page}"
-    )
-    return url
+    # Utilisation exacte des paramètres de ton URL
+    today = "2026-03-24"
+    end = "2027-03-24"
+    dep_params = "&".join(f"dep%5B{i}%5D={d}" for i, d in enumerate(DEPARTEMENTS))
+    return (f"/competitions?search=&start={today}&end={end}&{dep_params}"
+            f"&discipline=All&univers=All&inter=All&sort_by=start&sort_order=ASC&page={page}")
 
 # ============================
-# SCRAPING FFTA
+# SCRAPER AMÉLIORÉ
 # ============================
 def get_cards():
     cards = []
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"}
 
-    for page in range(10):  # On scanne les 10 premières pages de résultats
+    for page in range(5): 
         target = build_target_url(page)
         proxy_url = f"{PROXY}?target={quote(target, safe='')}"
-        print(f"[PAGE {page}] Scraping via Proxy...")
+        print(f"[PAGE {page}] Analyse de la page FFTA...")
 
         try:
-            r = requests.get(proxy_url, headers=headers, timeout=25)
-            if r.status_code != 200:
-                print(f"  ❌ HTTP {r.status_code} sur la page {page}")
-                break
-        except Exception as e:
-            print(f"  ❌ Erreur réseau : {e}")
-            break
+            r = requests.get(proxy_url, headers=headers, timeout=30)
+            if r.status_code != 200: break
+        except: break
 
         soup = BeautifulSoup(r.text, "html.parser")
         
-        # On cherche les liens vers les fiches épreuves
-        links = [a for a in soup.find_all("a", href=True) if "/competitions/" in a["href"]]
+        # Sur la nouvelle version, les compétitions sont souvent dans des balises 'article' 
+        # ou des div contenant le texte de la compétition.
+        items = soup.find_all(["article", "div"], class_=["views-row", "competition-item"])
         
-        if not links:
-            print("  → Plus de compétitions trouvées.")
-            break
+        # Si la recherche par classe échoue, on cherche par structure de texte (cas fréquent)
+        if not items:
+            # On cherche les conteneurs qui ont un lien "Détail"
+            details = soup.find_all("a", string=lambda x: x and "Détail" in x)
+            items = [d.find_parent(["div", "article"]) for d in details if d.find_parent(["div", "article"])]
 
-        for a in links:
-            title_raw = a.get_text(strip=True)
-            if not title_raw or len(title_raw) < 5: continue
-
-            # On remonte au parent pour trouver le mandat PDF dans le même bloc
-            # La FFTA utilise souvent des div 'views-row' ou 'card'
-            block = a.find_parent("div", class_="views-row") or a.parent.parent.parent
+        for item in items:
+            text_full = item.get_text(" ", strip=True)
+            links = item.find_all("a", href=True)
             
-            text_context = normalize(block.get_text(" "))
-            epreuve_url = urljoin(BASE, a["href"])
-
-            # Extraction du mandat (PDF)
             mandat_url = ""
-            for link in block.find_all("a", href=True):
-                href = link["href"].lower()
-                l_text = link.get_text(strip=True).lower()
-                if "mandat" in l_text or "mandat" in href or "/documents/" in href:
-                    mandat_url = urljoin(BASE, link["href"])
+            for l in links:
+                txt = l.get_text(strip=True).lower()
+                hrf = l["href"].lower()
+                if "mandat" in txt or "mandat" in hrf or ".pdf" in hrf:
+                    mandat_url = urljoin(BASE, l["href"])
                     break
+            
+            # On essaie d'extraire un titre propre (souvent le premier lien ou texte en gras)
+            title_tag = item.find(["h2", "h3", "strong"])
+            title = title_tag.get_text(strip=True) if title_tag else text_full[:50]
 
             cards.append({
-                "title": normalize(title_raw),
-                "text": text_context,
-                "mandat": mandat_url,
-                "url": epreuve_url,
-                "raw_name": title_raw
+                "title": normalize(title),
+                "text": normalize(text_full),
+                "mandat": mandat_url
             })
 
-        time.sleep(1) # Sécurité pour le proxy
-    
-    print(f"✅ {len(cards)} compétitions récupérées sur la FFTA.\n")
+    print(f"✅ {len(cards)} compétitions trouvées sur la FFTA.")
     return cards
 
 # ============================
-# LOGIQUE DE CORRESPONDANCE
-# ============================
-def is_match(row, card):
-    # Noms des colonnes exacts de ton CSV
-    titre_csv = normalize(row.get("Titre de la compétition", ""))
-    ville_csv = normalize(row.get("Ville", ""))
-    dep_csv = str(row.get("Département", "")).strip()
-
-    # Si on n'a ni titre ni ville, on ne peut pas comparer
-    if not titre_csv and not ville_csv:
-        return False
-
-    # 1. Vérification par ville (très fiable)
-    ville_match = ville_csv != "" and ville_csv in card["text"]
-    
-    # 2. Vérification par titre (contient souvent le nom du club)
-    # On vérifie si une partie du titre CSV est dans le titre FFTA
-    titre_match = titre_csv != "" and (titre_csv in card["title"] or card["title"] in titre_csv)
-
-    # 3. Vérification du département pour éviter les homonymes de villes
-    dep_match = dep_csv != "" and dep_csv in card["text"]
-
-    # On valide si (Ville ou Titre) match ET que le département correspond
-    return (ville_match or titre_match) and dep_match
-
-# ============================
-# MAIN
+# LOGIQUE DE MISE À JOUR
 # ============================
 def main():
     rows, fields = load_csv()
-    if not rows: return
-
-    # S'assurer que la colonne Mandat existe
-    if "Mandat" not in fields:
-        fields.append("Mandat")
-
-    # On ne traite que ceux qui n'ont pas de mandat (vide ou lien trop court)
-    lignes_a_traiter = [r for r in rows if len(str(r.get("Mandat", "")).strip()) < 5]
-    print(f"🚀 Analyse de {len(lignes_a_traiter)} lignes sans mandat...")
+    if "Mandat" not in fields: fields.append("Mandat")
 
     cards = get_cards()
-    count_updated = 0
+    updated = 0
 
     for row in rows:
-        # Skip si déjà un mandat
-        if len(str(row.get("Mandat", "")).strip()) > 5:
-            continue
+        # On ne traite que les lignes sans mandat (ou mandat vide)
+        if len(str(row.get("Mandat", "")).strip()) > 10: continue
+
+        v_csv = normalize(row.get("Ville", ""))
+        t_csv = normalize(row.get("Titre de la compétition", ""))
+        d_csv = str(row.get("Département", "")).strip()
 
         for card in cards:
-            if is_match(row, card):
+            # MATCH : La ville doit être dans le texte FFTA ET (le titre match OU le département match)
+            if v_csv in card["text"] and (t_csv in card["title"] or d_csv in card["text"]):
                 if card["mandat"]:
                     row["Mandat"] = card["mandat"]
-                    print(f"  ✅ TROUVÉ : {row.get('Ville')} ({row.get('Titre de la compétition')})")
-                    count_updated += 1
-                else:
-                    # On peut stocker l'URL de l'épreuve si le PDF n'est pas encore là
-                    print(f"  ⚠️ MATCH SANS PDF : {row.get('Ville')} -> Voir {card['url']}")
+                    print(f"  ⭐ Mandat ajouté : {row['Ville']} - {row['Titre de la compétition']}")
+                    updated += 1
                 break
 
-    if count_updated > 0:
+    if updated > 0:
         save_csv(rows, fields)
-        print(f"\n🎉 Terminé ! {count_updated} mandats ajoutés au CSV.")
+        print(f"\n🚀 Terminé : {updated} mandats mis à jour dans le CSV.")
     else:
-        print("\n¯\_(ツ)_/¯ Aucun nouveau mandat trouvé cette fois-ci.")
+        print("\nℹ️ Aucun nouveau mandat trouvé correspondant aux épreuves vides.")
 
 if __name__ == "__main__":
     main()
