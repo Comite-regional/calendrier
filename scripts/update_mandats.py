@@ -1,4 +1,4 @@
-import csv, requests, unicodedata, time, os
+import csv, requests, unicodedata, time, os, random
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, quote
 
@@ -10,37 +10,48 @@ PROXY = "https://ffta-proxy.s-general.workers.dev/"
 BASE = "https://www.ffta.fr"
 DEPARTEMENTS = ["44", "49", "53", "72", "85"]
 
+# Liste de User-Agents pour tromper la détection
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+]
+
 def normalize(s):
     if not s: return ""
     s = str(s).lower().strip()
-    s = unicodedata.normalize("NFD", s)
-    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
-    return s
-
-def build_target_url(page=0):
-    dep_params = "&".join(f"dep%5B{i}%5D={d}" for i, d in enumerate(DEPARTEMENTS))
-    # On ratisse toute la saison 2026
-    return (f"/competitions?search=&start=2025-09-01&end=2026-08-31&{dep_params}"
-            f"&discipline=All&univers=All&inter=All&sort_by=start&sort_order=ASC&page={page}")
+    s = unicodedata.normalize("NFD", s).encode("ascii", "ignore").decode("utf-8")
+    return s.replace("-", " ")
 
 def get_all_cards():
     cards = []
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"}
     page = 0
+    max_pages = 65 
     
-    print(f"🚀 Scan de la FFTA en cours...")
-    while True:
-        target = build_target_url(page)
+    print(f"🚀 Lancement du scan profond (Objectif: {max_pages} pages)")
+    
+    while page < max_pages:
+        dep_params = "&".join(f"dep%5B{i}%5D={d}" for i, d in enumerate(DEPARTEMENTS))
+        target = f"/competitions?search=&start=2025-09-01&end=2026-08-31&{dep_params}&page={page}"
         proxy_url = f"{PROXY}?target={quote(target, safe='')}"
-        print(f"   Scraping page {page}...", end="\r")
+        
+        headers = {"User-Agent": random.choice(USER_AGENTS)}
         
         try:
             r = requests.get(proxy_url, headers=headers, timeout=20)
             soup = BeautifulSoup(r.text, "html.parser")
             items = soup.find_all(["article", "div"], class_=["views-row", "competition-item", "card"])
             
-            if not items or page > 60: # Sécurité stop
-                break
+            if not items:
+                # Petite sécurité : si page vide, on attend un peu et on retente une fois
+                print(f"\n⚠️ Page {page} semble vide. Nouvelle tentative dans 5s...")
+                time.sleep(5)
+                r = requests.get(proxy_url, headers=headers, timeout=20)
+                soup = BeautifulSoup(r.text, "html.parser")
+                items = soup.find_all(["article", "div"], class_=["views-row", "competition-item", "card"])
+                if not items:
+                    print("🏁 Fin réelle des résultats ou blocage définitif.")
+                    break
 
             for item in items:
                 text_content = normalize(item.get_text(" "))
@@ -51,53 +62,61 @@ def get_all_cards():
                         mandat = urljoin(BASE, l['href'])
                         break
                 cards.append({"text": text_content, "mandat": mandat})
+            
+            print(f"   ✅ Page {page} traitée ({len(items)} épreuves)", end="\r")
+            
+            # PAUSE CRUCIALE pour éviter le ban
+            time.sleep(random.uniform(1.5, 3.0))
             page += 1
-        except: break
-    print(f"\n🎯 {len(cards)} épreuves trouvées sur la FFTA.")
+            
+        except Exception as e:
+            print(f"\n❌ Erreur page {page}: {e}")
+            break
+            
+    print(f"\n🎯 Total : {len(cards)} compétitions en mémoire.")
     return cards
 
 def main():
-    if not os.path.exists(CSV_PATH): return print("Fichier introuvable")
+    if not os.path.exists(CSV_PATH): return print("Fichier CSV introuvable")
     
     with open(CSV_PATH, encoding="utf-8-sig") as f:
         reader = csv.DictReader(f, delimiter=";")
         rows = list(reader)
         fields = reader.fieldnames
 
-    # On s'assure que la colonne Mandat existe
     if "Mandat" not in fields: fields.append("Mandat")
     
     cards = get_all_cards()
-    updated_count = 0
+    updated = 0
 
     for row in rows:
-        # On ne traite que si Mandat est vide ou contient juste un espace
-        m_actuel = str(row.get("Mandat", "")).strip()
-        if len(m_actuel) > 10: continue 
+        if len(str(row.get("Mandat", "")).strip()) > 10: continue
 
-        # Nettoyage des données CSV pour le match
         v_csv = normalize(row.get("Ville", ""))
+        v_comp = normalize(row.get("Ville compétition", ""))
         d_csv = str(row.get("Departement", "")).strip()
-        t_csv = normalize(row.get("Titre compétition", "")) # Nom exact dans ton CSV
+        code_club = str(row.get("Code structure", "")).strip()
 
         for card in cards:
-            # LOGIQUE DE MATCH : La ville ET (le département OU une partie du titre)
-            if v_csv and v_csv in card["text"]:
-                if (d_csv in card["text"] or t_csv[:10] in card["text"]) and card["mandat"]:
+            # Match par Code Structure ou Ville
+            match_code = code_club and code_club in card["text"]
+            match_ville = (v_csv and v_csv in card["text"]) or (v_comp and v_comp in card["text"])
+            
+            if (match_code or match_ville) and d_csv in card["text"]:
+                if card["mandat"]:
                     row["Mandat"] = card["mandat"]
-                    print(f"   ⭐ MATCH : {row['Ville']} -> Mandat ajouté")
-                    updated_count += 1
+                    print(f"   ⭐ Trouvé : {row['Ville']} ({code_club})")
+                    updated += 1
                     break
 
-    # Sauvegarde finale
-    if updated_count > 0:
+    if updated > 0:
         with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fields, delimiter=";")
             writer.writeheader()
             writer.writerows(rows)
-        print(f"\n✅ TERMINÉ : {updated_count} mandats insérés dans {CSV_PATH}.")
+        print(f"\n🎉 Terminé ! {updated} mandats ajoutés.")
     else:
-        print("\n❌ Aucun nouveau match. Vérifie que les noms de tes colonnes 'Ville' et 'Departement' n'ont pas d'espaces cachés.")
+        print("\nℹ️ Aucun nouveau mandat trouvé. Vérifie que le CSV n'est pas déjà à jour.")
 
 if __name__ == "__main__":
     main()
