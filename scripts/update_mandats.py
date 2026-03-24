@@ -6,7 +6,7 @@ from datetime import datetime
 # ============================
 # CONFIGURATION
 # ============================
-CSV_PATH = "concours26-4.csv"
+CSV_PATH = "concours26.csv"
 PROXY = "https://ffta-proxy.s-general.workers.dev/"
 BASE = "https://www.ffta.fr"
 
