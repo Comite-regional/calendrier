@@ -13,11 +13,10 @@ BASE = "https://www.ffta.fr"
 URL_ROOT = "/competitions?search=&start=2026-03-24&end=2027-03-24&dep%5B0%5D=45&dep%5B1%5D=50&dep%5B2%5D=54&dep%5B3%5D=73&dep%5B4%5D=86&discipline=All&univers=All&inter=All&sort_by=start&sort_order=ASC"
 
 def clean_text(s):
-    """Nettoie le texte de façon agressive (minuscules, pas d'accents, pas de ponctuation)"""
     if not s: return ""
     s = str(s).lower()
     s = unicodedata.normalize("NFD", s).encode("ascii", "ignore").decode("utf-8")
-    return re.sub(r'[^a-z0-9]', '', s) # On ne garde que les lettres et chiffres
+    return re.sub(r'[^a-z0-9]', '', s)
 
 def main():
     if not os.path.exists(CSV_PATH): return print(f"❌ Fichier {CSV_PATH} introuvable.")
@@ -43,7 +42,7 @@ def main():
         except: continue
 
     links = list(set(detail_links))
-    print(f"\n✅ {len(links)} épreuves trouvées. Analyse en profondeur...")
+    print(f"\n✅ {len(links)} épreuves à vérifier.")
 
     # 2. Analyse et Extraction
     updated = 0
@@ -52,38 +51,37 @@ def main():
             res = requests.get(f"{PROXY}?target={quote(link)}", timeout=15)
             detail_soup = BeautifulSoup(res.text, "html.parser")
             
-            # 1. On cherche le mandat (PDF ou texte "Mandat")
+            # --- RECHERCHE DU MANDAT AVEC EXCLUSION ---
             mandat_url = ""
             for a in detail_soup.find_all("a", href=True):
                 href = a['href'].lower()
                 text = a.get_text().lower()
+                
+                # On exclut les pages de santé/recommandations
+                if "sante-et-tir-larc" in href or "recommandations-medicales" in href:
+                    continue
+                
+                # On accepte si c'est un PDF ou si le texte contient "mandat"
                 if "mandat" in text or "mandat" in href or href.endswith(".pdf"):
                     mandat_url = urljoin(BASE, a['href'])
                     break
             
-            if not mandat_url: continue
+            if not mandat_url:
+                continue
 
-            # 2. On prépare le texte de la page pour le matching
             page_content_clean = clean_text(detail_soup.get_text())
             
-            # 3. On compare avec chaque ligne du CSV
             for row in rows:
-                # On ignore les lignes qui ont déjà un mandat
-                if len(str(row.get("Mandat", ""))) > 10: continue
+                # On ne remplit QUE si c'est vide ou si c'était l'erreur "santé"
+                current_mandat = str(row.get("Mandat", ""))
+                if "sante-et-tir-larc" not in current_mandat and len(current_mandat) > 10:
+                    continue
                 
                 code_club = clean_text(row.get("Code structure", ""))
-                ville = clean_text(row.get("Ville", ""))
                 
-                # MATCH : Si le code club est présent OU si la ville est présente avec le nom du club
-                # (Le code club est plus fiable)
                 if code_club and code_club in page_content_clean:
                     row["Mandat"] = mandat_url
-                    print(f"   ⭐ MATCH TROUVÉ : {row['Ville']} | Club: {row['Code structure']}")
-                    updated += 1
-                    break
-                elif ville and ville in page_content_clean and clean_text(row.get("Club organisateur", "")) in page_content_clean:
-                    row["Mandat"] = mandat_url
-                    print(f"   ⭐ MATCH (Ville/Club) : {row['Ville']}")
+                    print(f"   ⭐ MANDAT VALIDE : {row['Ville']} | {mandat_url[-30:]}")
                     updated += 1
                     break
                         
@@ -96,7 +94,7 @@ def main():
         writer.writeheader()
         writer.writerows(rows)
 
-    print(f"\n🎉 Terminé ! {updated} mandats ont été injectés dans le CSV.")
+    print(f"\n🎉 Terminé ! {updated} mandats réels ajoutés (les faux ont été ignorés).")
 
 if __name__ == "__main__":
     main()
