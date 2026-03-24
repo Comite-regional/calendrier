@@ -5,7 +5,7 @@ from urllib.parse import urljoin, quote
 # ============================
 # CONFIGURATION
 # ============================
-CSV_PATH = "concours26-3.csv"
+CSV_PATH = "concours26.csv"
 PROXY = "https://ffta-proxy.s-general.workers.dev/"
 BASE = "https://www.ffta.fr"
 DEPARTEMENTS = ["44", "49", "53", "72", "85"]
