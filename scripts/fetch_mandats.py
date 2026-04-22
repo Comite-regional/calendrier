@@ -11,7 +11,7 @@ Usage :
   python fetch_mandats.py --pages 5    → limite à 5 pages
 """
 
-import requests, csv, argparse, sys, time, re
+import requests, csv, argparse, time, re
 from datetime import date, timedelta
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -24,22 +24,33 @@ BASE_URL  = "https://www.ffta.fr/competitions"
 CSV_FILE  = "concours26.csv"
 SEPARATOR = ";"
 MAX_PAGES = 20
-DELAY     = 1.5   # secondes entre pages
+DELAY     = 2.0
 
-# IDs internes FFTA pour les 5 depts PDL
-# (découverts dans l'URL de filtre, ≠ codes INSEE)
-#   45 = Loire-Atlantique (44)
-#   50 = Maine-et-Loire   (49)
-#   54 = Mayenne          (53)
-#   73 = Sarthe           (72)
-#   86 = Vendée           (85)
+# IDs internes FFTA pour les 5 depts Pays de la Loire
 CR12_DEPS = ["45", "50", "54", "73", "86"]
 
+# Headers imitant un vrai navigateur Chrome sur Mac
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/124.0.0.0 Safari/537.36",
-    "Accept-Language": "fr-FR,fr;q=0.9",
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;"
+        "q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
+    ),
+    "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Referer":         "https://www.ffta.fr/",
+    "DNT":             "1",
+    "Connection":      "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest":  "document",
+    "Sec-Fetch-Mode":  "navigate",
+    "Sec-Fetch-Site":  "same-origin",
+    "Sec-Fetch-User":  "?1",
+    "Cache-Control":   "max-age=0",
 }
 
 CSV_COLUMNS = [
@@ -59,7 +70,7 @@ CSV_COLUMNS = [
 # URL
 # ═══════════════════════════════════════════
 
-def build_start_url() -> str:
+def build_start_url():
     today    = date.today()
     end_date = today + timedelta(days=365)
     deps     = "".join(f"&dep%5B%5D={d}" for d in CR12_DEPS)
@@ -74,11 +85,16 @@ def build_start_url() -> str:
 # SCRAPING
 # ═══════════════════════════════════════════
 
-def fetch_page(url):
+def fetch_page(url, session):
     try:
-        r = requests.get(url, headers=HEADERS, timeout=30)
+        # Petite pause aléatoire pour paraître plus humain
+        time.sleep(DELAY)
+        r = session.get(url, headers=HEADERS, timeout=30)
         r.raise_for_status()
         return BeautifulSoup(r.text, "html.parser")
+    except requests.exceptions.HTTPError as e:
+        print(f"  ERR HTTP {e.response.status_code} : {url[:80]}")
+        return None
     except requests.exceptions.RequestException as e:
         print(f"  ERR réseau : {e}")
         return None
@@ -118,30 +134,44 @@ def get_next_url(soup):
     return f"https://www.ffta.fr{href}" if href.startswith("/") else href or None
 
 def scrape_all(start_url, max_pages, dump_html):
-    all_comps, url = [], start_url
+    all_comps = []
+    url = start_url
+
+    # Session persistante = cookies conservés entre pages (plus naturel)
+    session = requests.Session()
+
+    # Visite de la page d'accueil d'abord (simule un vrai parcours utilisateur)
+    print("  Initialisation session (accueil FFTA)...")
+    try:
+        session.get("https://www.ffta.fr", headers=HEADERS, timeout=15)
+    except Exception:
+        pass
+
     for p in range(1, max_pages + 1):
-        print(f"  Page {p} : {url[:80]}...")
-        soup = fetch_page(url)
+        print(f"  Page {p}...")
+        soup = fetch_page(url, session)
         if not soup:
+            print("  Arrêt sur erreur.")
             break
         if dump_html:
             Path(f"debug_page_{p}.html").write_text(soup.prettify(), encoding="utf-8")
+            print(f"  -> debug_page_{p}.html sauvegardé")
         comps = parse_competitions(soup)
-        print(f"         -> {len(comps)} épreuves, "
-              f"{sum(1 for c in comps if c['mandat_url'])} avec mandat")
+        nb_mandat = sum(1 for c in comps if c["mandat_url"])
+        print(f"  -> {len(comps)} épreuves, {nb_mandat} avec mandat")
         if not comps:
             break
         all_comps.extend(comps)
         next_url = get_next_url(soup)
         if not next_url:
-            print("         -> Dernière page.")
+            print("  -> Dernière page.")
             break
         url = next_url
-        time.sleep(DELAY)
+
     return all_comps
 
 # ═══════════════════════════════════════════
-# MATCHING
+# MATCHING CSV ↔ SCRAPE
 # ═══════════════════════════════════════════
 
 def norm(s):
@@ -154,13 +184,11 @@ def norm(s):
 
 def find_match(row, scraped):
     titre = norm(row.get("Titre compétition", ""))
-    d     = row.get("Date debut", "").strip()
-    # Titre + date
+    d = row.get("Date debut", "").strip()
     for c in scraped:
         if norm(c.get("titre","")) == titre and c.get("mandat_url"):
             if not d or d in c.get("date_raw",""):
                 return c
-    # Titre seul
     for c in scraped:
         if norm(c.get("titre","")) == titre and c.get("mandat_url"):
             return c
@@ -197,15 +225,15 @@ def main():
 
     url = build_start_url()
     print(f"FFTA CR12 — Scraping mandats")
-    print(f"URL de départ : {url}\n")
+    print(f"URL : {url}\n")
 
     scraped = scrape_all(url, args.pages, args.dump_html)
-    print(f"\nTotal scrapé : {len(scraped)} épreuves "
+    print(f"\nTotal : {len(scraped)} épreuves "
           f"({sum(1 for c in scraped if c['mandat_url'])} avec mandat)")
 
     rows = load_csv(Path(args.csv))
     avant = sum(1 for r in rows if r.get("Mandat","").strip())
-    print(f"CSV actuel   : {len(rows)} lignes, {avant} mandats\n")
+    print(f"CSV  : {len(rows)} lignes, {avant} mandats\n")
 
     updated = 0
     for row in rows:
@@ -244,7 +272,7 @@ def main():
         return
 
     save_csv(Path(args.csv), rows + new_rows)
-    print(f"CSV sauvegarde : {args.csv}")
+    print(f"CSV sauvegardé : {args.csv}")
 
 if __name__ == "__main__":
     main()
