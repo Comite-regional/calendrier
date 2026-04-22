@@ -1,0 +1,45 @@
+name: 🎯 Mandats FFTA — CR12 Pays de la Loire
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (affiche sans écrire)"
+        default: "false"
+        type: boolean
+      dump_html:
+        description: "Sauvegarder le HTML brut (debug)"
+        default: "false"
+        type: boolean
+
+jobs:
+  update-mandats:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Installer les dépendances
+        run: pip install requests beautifulsoup4
+      - name: Scraper les mandats FFTA
+        run: |
+          ARGS="--csv concours26.csv"
+          [ "${{ github.event.inputs.dry_run }}"   = "true" ] && ARGS="$ARGS --dry-run"
+          [ "${{ github.event.inputs.dump_html }}" = "true" ] && ARGS="$ARGS --dump-html"
+          python scripts/fetch_mandats.py $ARGS
+      - name: Commit et push si modifications
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add concours26.csv
+          if git diff --cached --quiet; then
+            echo "Aucune modification."
+          else
+            git commit -m "🎯 Mandats FFTA CR12 — $(date '+%Y-%m-%d %H:%M UTC')"
+            git push
+          fi
